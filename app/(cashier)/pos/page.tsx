@@ -340,7 +340,7 @@ export default function POSPage() {
                   className="text-xs font-bold px-2 py-1 rounded-sm flex items-center gap-1"
                   style={{ backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}
                   title="New Restock Request">
-                  📦 Restock
+                  Advance Order
                 </button>
                 <span className="text-white text-sm font-bold opacity-70">{cartItemCount} item{cartItemCount !== 1 ? 's' : ''}</span>
               </div>
