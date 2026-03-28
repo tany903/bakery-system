@@ -20,6 +20,7 @@ export interface RestockRequestWithDetails extends Omit<RestockRequest, 'product
   // Keep these for backward compat but they'll reflect totals
   requested_quantity: number
   fulfilled_quantity?: number | null
+  delivery_date?: string | null
 }
 
 export interface NewRestockItem {
@@ -36,7 +37,8 @@ export async function createRestockRequest(
   items: NewRestockItem[],
   request_type: 'auto_alert' | 'manual_order',
   requestedBy: string,
-  notes?: string
+  notes?: string,
+  delivery_date?: string
 ): Promise<RestockRequest> {
   if (!items || items.length === 0) throw new Error('At least one item is required')
 
@@ -46,13 +48,13 @@ export async function createRestockRequest(
   const { data: request, error: requestError } = await supabase
     .from('restock_requests')
     .insert({
-      // product_id kept null for multi-product requests — keep column nullable in DB
       product_id: items.length === 1 ? items[0].product_id : null,
       request_type,
       requested_quantity: totalRequested,
       status: 'requested',
       requested_by: requestedBy,
       notes: notes || null,
+      delivery_date: delivery_date || null,
     })
     .select()
     .single()
@@ -128,6 +130,7 @@ export async function autoGenerateLowStockRequests(
     'auto_alert',
     requestedBy,
     'Auto-generated batch for low stock items'
+    // no delivery_date for auto-generated
   )
 
   return [request]

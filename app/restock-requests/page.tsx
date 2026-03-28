@@ -29,7 +29,6 @@ export default function RestockRequestsPage() {
   const [filteredRequests, setFilteredRequests] = useState<RestockRequestWithDetails[]>([])
   const [categories, setCategories] = useState<Category[]>([])
 
-  // Filters
   const [statusFilter, setStatusFilter] = useState<string>(() => {
     if (typeof window !== 'undefined') return sessionStorage.getItem('restockStatusFilter') || 'pending'
     return 'pending'
@@ -48,13 +47,13 @@ export default function RestockRequestsPage() {
   const [showFulfillModal, setShowFulfillModal] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState<RestockRequestWithDetails | null>(null)
 
-  // New request modal
   const [showNewRequestModal, setShowNewRequestModal] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [newItems, setNewItems] = useState<{ product_id: string; requested_quantity: string; notes: string }[]>([
     { product_id: '', requested_quantity: '', notes: '' }
   ])
   const [newOrderNotes, setNewOrderNotes] = useState('')
+  const [newDeliveryDate, setNewDeliveryDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => { checkAuth() }, [])
@@ -98,25 +97,16 @@ export default function RestockRequestsPage() {
 
   function filterRequests() {
     let result = requests
-
     if (statusFilter === 'pending') result = result.filter(r => r.status === 'requested')
     else if (statusFilter !== 'all') result = result.filter(r => r.status === statusFilter)
-
     if (typeFilter !== 'all') result = result.filter(r => (r as any).request_type === typeFilter)
-
     if (search.trim()) {
       const q = search.trim().toLowerCase()
-      result = result.filter(r =>
-        (r.items || []).some((item: any) => item.products?.name?.toLowerCase().includes(q))
-      )
+      result = result.filter(r => (r.items || []).some((item: any) => item.products?.name?.toLowerCase().includes(q)))
     }
-
     if (categoryFilter !== 'all') {
-      result = result.filter(r =>
-        (r.items || []).some((item: any) => item.products?.categories?.id === categoryFilter)
-      )
+      result = result.filter(r => (r.items || []).some((item: any) => item.products?.categories?.id === categoryFilter))
     }
-
     const now = new Date()
     if (dateFilter === 'today') {
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -135,7 +125,6 @@ export default function RestockRequestsPage() {
         result = result.filter(r => new Date(r.created_at) <= end)
       }
     }
-
     setFilteredRequests(result)
   }
 
@@ -170,7 +159,6 @@ export default function RestockRequestsPage() {
       setShowFulfillModal(false); setSelectedRequest(null)
       await loadRequests()
     } catch (err: any) {
-      console.error('fulfill error:', JSON.stringify(err))
       setError(err.message || 'Failed to fulfill request')
     } finally { setTimeout(() => { setSuccess(''); setError('') }, 3000) }
   }
@@ -188,27 +176,18 @@ export default function RestockRequestsPage() {
     await loadProducts()
     setNewItems([{ product_id: '', requested_quantity: '', notes: '' }])
     setNewOrderNotes('')
+    setNewDeliveryDate('')
     setShowNewRequestModal(true)
   }
 
-  function addItem() {
-    setNewItems(prev => [...prev, { product_id: '', requested_quantity: '', notes: '' }])
-  }
-
-  function removeItem(index: number) {
-    setNewItems(prev => prev.filter((_, i) => i !== index))
-  }
-
+  function addItem() { setNewItems(prev => [...prev, { product_id: '', requested_quantity: '', notes: '' }]) }
+  function removeItem(index: number) { setNewItems(prev => prev.filter((_, i) => i !== index)) }
   function updateItem(index: number, field: string, value: string) {
     setNewItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item))
   }
 
-  // Get products not already selected in other rows
   function getAvailableProducts(currentIndex: number) {
-    const selectedIds = newItems
-      .filter((_, i) => i !== currentIndex)
-      .map(item => item.product_id)
-      .filter(Boolean)
+    const selectedIds = newItems.filter((_, i) => i !== currentIndex).map(item => item.product_id).filter(Boolean)
     return products.filter(p => !selectedIds.includes(p.id))
   }
 
@@ -216,47 +195,54 @@ export default function RestockRequestsPage() {
     e.preventDefault()
     const validItems = newItems.filter(i => i.product_id && parseInt(i.requested_quantity) > 0)
     if (validItems.length === 0) { setError('Please add at least one product with a valid quantity'); return }
-
     const items: NewRestockItem[] = validItems.map(i => ({
       product_id: i.product_id,
       requested_quantity: parseInt(i.requested_quantity),
       notes: i.notes || undefined,
     }))
-
     setSubmitting(true); setError('')
     try {
-      await createRestockRequest(items, 'manual_order', userId, newOrderNotes || undefined)
+      await createRestockRequest(items, 'manual_order', userId, newOrderNotes || undefined, newDeliveryDate || undefined)
       setSuccess(`Restock request created with ${items.length} product${items.length !== 1 ? 's' : ''}`)
       setShowNewRequestModal(false)
       await loadRequests()
     } catch (err: any) {
-      console.error('create error:', err)
       setError(err.message || 'Failed to create request')
     } finally { setSubmitting(false); setTimeout(() => { setSuccess(''); setError('') }, 3000) }
   }
 
   const handleLogout = async () => { await signOut(); router.push('/login') }
   const pendingCount = requests.filter(r => r.status === 'requested').length
-
   const totalPages = Math.ceil(filteredRequests.length / PAGE_SIZE)
   const paginatedRequests = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-
+  function getDeliveryDateInfo(deliveryDate: string | null | undefined) {
+    if (!deliveryDate) return null
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const due = new Date(deliveryDate); due.setHours(0, 0, 0, 0)
+    const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays < 0)   return { label: `Overdue by ${Math.abs(diffDays)}d`, color: '#EF4444', bg: '#FEE2E2' }
+    if (diffDays === 0) return { label: 'Needed Today!',        color: '#DC2626', bg: '#FEE2E2' }
+    if (diffDays === 1) return { label: 'Needed Tomorrow',      color: '#D97706', bg: '#FEF3C7' }
+    if (diffDays <= 3)  return { label: `Needed in ${diffDays}d`, color: '#D97706', bg: '#FEF3C7' }
+    return {
+      label: `Needed by ${new Date(deliveryDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+      color: '#6B7280', bg: '#F3F4F6'
+    }
+  }
 
   const cashierNavLinks = [
     { href: '/pos', label: 'POS' },
     { href: '/inventory', label: 'Inventory' },
     { href: '/restock-requests', label: 'Restock', active: true },
   ]
-
-const productionNavLinks = [
-  { href: '/production', label: 'Dashboard' },
-  { href: '/inventory', label: 'Inventory' },
-  { href: '/restock-requests', label: 'Restock', active: true },
-  { href: '/ingredients', label: 'Ingredients' },
-  { href: '/purchase-orders', label: 'Purchase Orders' },
-]
-
+  const productionNavLinks = [
+    { href: '/production', label: 'Dashboard' },
+    { href: '/inventory', label: 'Inventory' },
+    { href: '/restock-requests', label: 'Restock', active: true },
+    { href: '/ingredients', label: 'Ingredients' },
+    { href: '/purchase-orders', label: 'Purchase Orders' },
+  ]
   const statusTabs = [
     { key: 'all', label: 'All', count: requests.length },
     { key: 'pending', label: 'Pending', count: requests.filter(r => r.status === 'requested').length },
@@ -264,7 +250,6 @@ const productionNavLinks = [
     { key: 'partially_fulfilled', label: 'Partial', count: requests.filter(r => r.status === 'partially_fulfilled').length },
     { key: 'declined', label: 'Declined', count: requests.filter(r => r.status === 'declined').length },
   ]
-
   const dateTabs = [
     { key: 'all', label: 'All Time' },
     { key: 'today', label: 'Today' },
@@ -292,7 +277,6 @@ const productionNavLinks = [
       style={{ opacity: 0.3, top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50%', zIndex: 0 }}
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
   )
-
   const Branding = () => (
     <div className="flex items-center gap-3 shrink-0">
       <span className="text-white font-black text-xl tracking-wide">IS FREDS</span>
@@ -302,7 +286,6 @@ const productionNavLinks = [
       <span className="text-white font-black text-xl tracking-wide">IS GOOD</span>
     </div>
   )
-
   const LogoutButton = () => (
     <button onClick={handleLogout}
       className="flex flex-col items-center gap-0.5 px-5 py-2 bg-white rounded-sm text-gray-800 hover:bg-gray-100 transition-colors shrink-0">
@@ -317,23 +300,19 @@ const productionNavLinks = [
         const items = request.items || []
         const totalRequested = items.reduce((sum: number, i: any) => sum + (i.requested_quantity || 0), 0)
         const totalFulfilled = items.reduce((sum: number, i: any) => sum + (i.fulfilled_quantity || 0), 0)
+        const deliveryInfo = getDeliveryDateInfo((request as any).delivery_date)
 
         return (
           <div key={request.id} className="bg-white rounded-sm overflow-hidden flex flex-col"
             style={{ boxShadow: '4px 4px 10px rgba(0,0,0,0.2)' }}>
 
-            {/* Card header */}
             <div className="px-4 py-3 flex items-center justify-between" style={{ backgroundColor: '#220901' }}>
               <div className="truncate pr-2">
                 <span className="text-white font-black text-sm">
-                  {items.length === 1
-                    ? (items[0] as any).products?.name || 'Unknown Product'
-                    : `${items.length} Products`}
+                  {items.length === 1 ? (items[0] as any).products?.name || 'Unknown Product' : `${items.length} Products`}
                 </span>
                 <span className="text-white text-xs opacity-50 ml-2">
-                  {items.length === 1
-                    ? (items[0] as any).products?.categories?.name || ''
-                    : `${totalRequested} units total`}
+                  {items.length === 1 ? (items[0] as any).products?.categories?.name || '' : `${totalRequested} units total`}
                 </span>
               </div>
               {getStatusBadge(request.status)}
@@ -341,7 +320,16 @@ const productionNavLinks = [
 
             <div className="px-4 py-4 flex flex-col gap-3 flex-1">
 
-              {/* Request type */}
+              {/* Needed By badge — shown prominently if set */}
+              {deliveryInfo && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: deliveryInfo.bg }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: deliveryInfo.color }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-xs font-black" style={{ color: deliveryInfo.color }}>{deliveryInfo.label}</span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400 font-medium">Request Type</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${(request as any).request_type === 'manual_order' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
@@ -349,7 +337,6 @@ const productionNavLinks = [
                 </span>
               </div>
 
-              {/* Products list */}
               <div className="flex flex-col gap-2">
                 {items.map((item: any, idx: number) => (
                   <div key={item.id || idx} className="rounded-sm px-3 py-2 bg-gray-50 border border-gray-100">
@@ -373,14 +360,11 @@ const productionNavLinks = [
                         </div>
                       )}
                     </div>
-                    {item.notes && (
-                      <p className="text-xs text-gray-400 italic mt-1">{item.notes}</p>
-                    )}
+                    {item.notes && <p className="text-xs text-gray-400 italic mt-1">{item.notes}</p>}
                   </div>
                 ))}
               </div>
 
-              {/* Totals row (only for multi-item) */}
               {items.length > 1 && (
                 <div className="flex gap-3 pt-1 border-t border-gray-100">
                   <div className="flex-1 rounded-sm px-3 py-2 bg-gray-100">
@@ -396,12 +380,10 @@ const productionNavLinks = [
                 </div>
               )}
 
-              {/* Order-level notes */}
               {(request as any).notes && (
                 <p className="text-xs text-gray-500 italic border-l-2 border-gray-200 pl-2 leading-relaxed">{(request as any).notes}</p>
               )}
 
-              {/* Meta */}
               <div className="flex flex-col gap-0.5">
                 <p className="text-xs text-gray-400">
                   {new Date(request.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -413,7 +395,6 @@ const productionNavLinks = [
 
               <div className="flex-1" />
 
-              {/* Actions */}
               {userRole === 'production' && ['requested', 'acknowledged'].includes(request.status) && (
                 <div className="flex gap-2 pt-2 border-t border-gray-100">
                   <button onClick={() => handleFulfillClick(request.id)}
@@ -441,31 +422,23 @@ const productionNavLinks = [
       <div className="flex gap-2">
         <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
           className="px-3 py-1.5 rounded-sm text-xs font-bold disabled:opacity-40"
-          style={{ backgroundColor: '#1a2340', color: 'white' }}>
-          ← Prev
-        </button>
+          style={{ backgroundColor: '#1a2340', color: 'white' }}>← Prev</button>
         {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
           <button key={p} onClick={() => setPage(p)}
             className="px-3 py-1.5 rounded-sm text-xs font-bold"
-            style={page === p
-              ? { backgroundColor: '#1a2340', color: 'white' }
-              : { backgroundColor: 'white', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
+            style={page === p ? { backgroundColor: '#1a2340', color: 'white' } : { backgroundColor: 'white', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
             {p}
           </button>
         ))}
         <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
           className="px-3 py-1.5 rounded-sm text-xs font-bold disabled:opacity-40"
-          style={{ backgroundColor: '#1a2340', color: 'white' }}>
-          Next →
-        </button>
+          style={{ backgroundColor: '#1a2340', color: 'white' }}>Next →</button>
       </div>
     </div>
   )
 
   const mainContent = (
     <div className="relative z-10 flex-1 p-6 overflow-y-auto">
-
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-4xl font-black text-gray-900">Restock Requests</h1>
@@ -492,58 +465,43 @@ const productionNavLinks = [
       {error && <div className="mb-4 px-4 py-3 rounded-sm text-sm font-semibold text-white bg-red-500">{error}</div>}
       {success && <div className="mb-4 px-4 py-3 rounded-sm text-sm font-semibold text-white bg-green-500">{success}</div>}
 
-      {/* Filter bar */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
         <div className="flex flex-wrap gap-2">
           {statusTabs.map(tab => (
             <button key={tab.key} onClick={() => handleSetStatusFilter(tab.key)}
               className="px-4 py-1.5 rounded-sm text-xs font-bold transition-colors"
-              style={statusFilter === tab.key
-                ? { backgroundColor: '#1a2340', color: 'white' }
-                : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
+              style={statusFilter === tab.key ? { backgroundColor: '#1a2340', color: 'white' } : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
               {tab.label} ({tab.count})
             </button>
           ))}
         </div>
-
         <div className="flex flex-wrap items-center gap-2">
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search product..."
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search product..."
             className="text-xs px-3 py-1.5 rounded-sm border border-gray-200 bg-white focus:outline-none focus:border-gray-400 text-gray-900 placeholder-gray-400"
             style={{ minWidth: '150px', boxShadow: '2px 2px 7px rgba(0,0,0,0.1)' }} />
-
           <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
             className="text-xs px-3 py-1.5 rounded-sm border border-gray-200 bg-white focus:outline-none focus:border-gray-400 text-gray-900"
             style={{ boxShadow: '2px 2px 7px rgba(0,0,0,0.1)' }}>
             <option value="all">All Categories</option>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-
           {['all', 'auto_alert', 'manual_order'].map(type => (
             <button key={type} onClick={() => setTypeFilter(type)}
               className="px-3 py-1.5 rounded-sm text-xs font-bold transition-colors"
-              style={typeFilter === type
-                ? { backgroundColor: '#1a2340', color: 'white' }
-                : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
+              style={typeFilter === type ? { backgroundColor: '#1a2340', color: 'white' } : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
               {type === 'all' ? 'All Types' : type === 'auto_alert' ? 'Auto' : 'Manual'}
             </button>
           ))}
-
           {dateTabs.map(tab => (
             <button key={tab.key} onClick={() => setDateFilter(tab.key)}
               className="px-3 py-1.5 rounded-sm text-xs font-bold transition-colors"
-              style={dateFilter === tab.key
-                ? { backgroundColor: '#7B1111', color: 'white' }
-                : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
+              style={dateFilter === tab.key ? { backgroundColor: '#7B1111', color: 'white' } : { backgroundColor: 'white', color: '#374151', boxShadow: '2px 2px 7px rgba(0,0,0,0.15)' }}>
               {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Custom date range */}
       {dateFilter === 'custom' && (
         <div className="flex gap-3 mb-5 items-end justify-end">
           <div>
@@ -557,9 +515,7 @@ const productionNavLinks = [
               className="text-sm px-3 py-2 rounded-sm border border-gray-200 bg-gray-50 focus:outline-none focus:border-gray-400 text-gray-900" />
           </div>
           <button onClick={() => { setDateFrom(''); setDateTo('') }}
-            className="px-3 py-2 rounded-sm text-xs font-bold text-gray-500 hover:bg-gray-100">
-            Clear
-          </button>
+            className="px-3 py-2 rounded-sm text-xs font-bold text-gray-500 hover:bg-gray-100">Clear</button>
         </div>
       )}
 
@@ -571,21 +527,13 @@ const productionNavLinks = [
             <p className="text-sm text-gray-400 mt-1">Create a manual request or auto-generate for low stock items</p>
           )}
         </div>
-      ) : (
-        <>
-          {cards}
-          {pagination}
-        </>
-      )}
+      ) : (<>{cards}{pagination}</>)}
     </div>
   )
 
-  // ── NEW REQUEST MODAL (multi-product) ──
   const newRequestModal = showNewRequestModal ? (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-sm w-full max-w-2xl max-h-[90vh] flex flex-col" style={{ boxShadow: '4px 4px 20px rgba(0,0,0,0.4)' }}>
-
-        {/* Modal header */}
         <div className="px-6 py-4 shrink-0" style={{ backgroundColor: '#220901' }}>
           <h2 className="text-white font-black text-lg">New Restock Request</h2>
           <p className="text-white text-xs opacity-50 mt-0.5">Add multiple products to a single order</p>
@@ -593,49 +541,30 @@ const productionNavLinks = [
 
         <form onSubmit={handleCreateRequest} className="flex flex-col flex-1 overflow-hidden">
           <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
-
-            {/* Product rows */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelClass}>Products *</label>
                 <span className="text-xs text-gray-400">{newItems.length} item{newItems.length !== 1 ? 's' : ''}</span>
               </div>
-
               <div className="space-y-3">
                 {newItems.map((item, index) => {
                   const selectedProduct = products.find(p => p.id === item.product_id)
                   const availableProducts = getAvailableProducts(index)
-
                   return (
                     <div key={index} className="rounded-sm border border-gray-200 overflow-hidden">
-
-                      {/* Row header */}
                       <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
                         <span className="text-xs font-bold text-gray-500">Item {index + 1}</span>
                         {newItems.length > 1 && (
-                          <button type="button" onClick={() => removeItem(index)}
-                            className="text-xs text-red-400 font-bold hover:text-red-600">
-                            Remove
-                          </button>
+                          <button type="button" onClick={() => removeItem(index)} className="text-xs text-red-400 font-bold hover:text-red-600">Remove</button>
                         )}
                       </div>
-
                       <div className="px-3 py-3 space-y-2">
-                        {/* Product select */}
-                        <select
-                          value={item.product_id}
-                          onChange={e => updateItem(index, 'product_id', e.target.value)}
-                          required
-                          className={inputClass}>
+                        <select value={item.product_id} onChange={e => updateItem(index, 'product_id', e.target.value)} required className={inputClass}>
                           <option value="">Select a product...</option>
                           {availableProducts.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} — Shop: {p.shop_current_stock} | Prod: {p.production_current_stock}
-                            </option>
+                            <option key={p.id} value={p.id}>{p.name} — Shop: {p.shop_current_stock} | Prod: {p.production_current_stock}</option>
                           ))}
                         </select>
-
-                        {/* Stock info for selected product */}
                         {selectedProduct && (
                           <div className="rounded-sm px-3 py-2 flex gap-4" style={{ backgroundColor: '#220901' }}>
                             <div>
@@ -654,27 +583,18 @@ const productionNavLinks = [
                             </div>
                           </div>
                         )}
-
-                        {/* Quantity + item notes */}
                         <div className="flex gap-2">
                           <div className="flex-1">
                             <label className={labelClass}>Quantity *</label>
-                            <input
-                              type="number" min="1"
-                              value={item.requested_quantity}
+                            <input type="number" min="1" value={item.requested_quantity}
                               onChange={e => updateItem(index, 'requested_quantity', e.target.value)}
-                              required
-                              placeholder="e.g., 50"
-                              className={inputClass} />
+                              required placeholder="e.g., 50" className={inputClass} />
                           </div>
                           <div className="flex-1">
                             <label className={labelClass}>Item Notes (optional)</label>
-                            <input
-                              type="text"
-                              value={item.notes}
+                            <input type="text" value={item.notes}
                               onChange={e => updateItem(index, 'notes', e.target.value)}
-                              placeholder="e.g., Urgent"
-                              className={inputClass} />
+                              placeholder="e.g., Urgent" className={inputClass} />
                           </div>
                         </div>
                       </div>
@@ -682,8 +602,6 @@ const productionNavLinks = [
                   )
                 })}
               </div>
-
-              {/* Add product button */}
               {newItems.length < products.length && (
                 <button type="button" onClick={addItem}
                   className="mt-3 w-full py-2 rounded-sm border-2 border-dashed border-gray-300 text-xs font-bold text-gray-400 hover:border-gray-400 hover:text-gray-600 transition-colors">
@@ -692,15 +610,32 @@ const productionNavLinks = [
               )}
             </div>
 
-            {/* Order-level notes */}
-            <div>
-              <label className={labelClass}>Order Notes (optional)</label>
-              <textarea value={newOrderNotes} onChange={e => setNewOrderNotes(e.target.value)} rows={2}
-                placeholder="e.g., Needed before weekend, special event, etc."
-                className={inputClass} />
+            {/* Needed By + Order Notes */}
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className={labelClass}>
+                  Needed By <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={newDeliveryDate}
+                  onChange={e => setNewDeliveryDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className={inputClass}
+                />
+                {newDeliveryDate && (() => {
+                  const info = getDeliveryDateInfo(newDeliveryDate)
+                  return info ? <p className="text-xs mt-1 font-semibold" style={{ color: info.color }}>{info.label}</p> : null
+                })()}
+              </div>
+              <div className="flex-1">
+                <label className={labelClass}>Order Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                <textarea value={newOrderNotes} onChange={e => setNewOrderNotes(e.target.value)} rows={2}
+                  placeholder="e.g., Needed before weekend, special event, etc."
+                  className={inputClass} />
+              </div>
             </div>
 
-            {/* Summary */}
             {newItems.some(i => i.product_id && parseInt(i.requested_quantity) > 0) && (
               <div className="rounded-sm px-4 py-3 bg-gray-50 border border-gray-100">
                 <p className="text-xs font-bold text-gray-500 mb-2">Order Summary</p>
@@ -708,11 +643,16 @@ const productionNavLinks = [
                   const p = products.find(pr => pr.id === item.product_id)
                   return p ? (
                     <div key={idx} className="flex justify-between text-xs text-gray-700 mb-1">
-                      <span>{p.name}</span>
-                      <span className="font-bold">{item.requested_quantity} units</span>
+                      <span>{p.name}</span><span className="font-bold">{item.requested_quantity} units</span>
                     </div>
                   ) : null
                 })}
+                {newDeliveryDate && (
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Needed By</span>
+                    <span className="font-bold">{new Date(newDeliveryDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  </div>
+                )}
                 <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between text-xs font-black text-gray-900">
                   <span>Total Units</span>
                   <span>{newItems.filter(i => parseInt(i.requested_quantity) > 0).reduce((sum, i) => sum + (parseInt(i.requested_quantity) || 0), 0)}</span>
@@ -721,7 +661,6 @@ const productionNavLinks = [
             )}
           </div>
 
-          {/* Modal footer */}
           <div className="px-6 py-4 border-t border-gray-100 flex gap-3 shrink-0">
             <button type="submit" disabled={submitting}
               className="flex-1 py-2 rounded-sm font-bold text-white text-sm disabled:opacity-50"
@@ -754,7 +693,6 @@ const productionNavLinks = [
     )
   }
 
-  // ── CASHIER ──
   if (userRole === 'cashier') {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F5A623' }}>
@@ -762,27 +700,20 @@ const productionNavLinks = [
           <Branding />
           <div className="flex gap-2">
             {cashierNavLinks.map(link => (
-              <a key={link.label} href={link.href}
-                className="px-4 py-1.5 rounded-sm text-xs font-bold no-underline transition-colors"
-                style={link.active
-                  ? { backgroundColor: '#F5A623', color: '#7B1111' }
-                  : { backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
+              <a key={link.label} href={link.href} className="px-4 py-1.5 rounded-sm text-xs font-bold no-underline transition-colors"
+                style={link.active ? { backgroundColor: '#F5A623', color: '#7B1111' } : { backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
                 {link.label}
               </a>
             ))}
           </div>
           <div className="ml-auto"><LogoutButton /></div>
         </div>
-        <div className="flex flex-1 relative">
-          <Watermark />
-          {mainContent}
-        </div>
+        <div className="flex flex-1 relative"><Watermark />{mainContent}</div>
         {newRequestModal}
       </div>
     )
   }
 
-  // ── PRODUCTION ──
   if (userRole === 'production') {
     return (
       <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F5A623' }}>
@@ -790,37 +721,27 @@ const productionNavLinks = [
           <Branding />
           <div className="flex gap-2">
             {productionNavLinks.map(link => (
-              <a key={link.label} href={link.href}
-                className="px-4 py-1.5 rounded-sm text-xs font-bold no-underline transition-colors"
-                style={link.active
-                  ? { backgroundColor: '#F5A623', color: '#7B1111' }
-                  : { backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
+              <a key={link.label} href={link.href} className="px-4 py-1.5 rounded-sm text-xs font-bold no-underline transition-colors"
+                style={link.active ? { backgroundColor: '#F5A623', color: '#7B1111' } : { backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}>
                 {link.label}
               </a>
             ))}
           </div>
           <div className="ml-auto"><LogoutButton /></div>
         </div>
-        <div className="flex flex-1 relative">
-          <Watermark />
-          {mainContent}
-        </div>
+        <div className="flex flex-1 relative"><Watermark />{mainContent}</div>
         {fulfillModal}
       </div>
     )
   }
 
-  // ── MANAGER ──
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F5A623' }}>
       <div className="relative z-10 w-full flex items-center justify-between px-6 py-3 shrink-0" style={{ backgroundColor: '#7B1111' }}>
-        <Branding />
-        <LogoutButton />
+        <Branding /><LogoutButton />
       </div>
       <div className="flex flex-1 relative overflow-hidden">
-        <Watermark />
-        <ManagerSidebar />
-        {mainContent}
+        <Watermark /><ManagerSidebar />{mainContent}
       </div>
       {newRequestModal}
       {fulfillModal}
