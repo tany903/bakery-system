@@ -1,6 +1,7 @@
 'use client'
 import { usePathname } from 'next/navigation'
 const links = [
+  { href: '/dashboard',        icon: '/icons/menu.svg',        label: 'Dashboard' },
   { href: '/restock-requests', icon: '/icons/Plus_square.svg', label: 'Restock' },
   { href: '/inventory',        icon: '/icons/Box.svg',         label: 'Inventory' },
   { href: '/expenses',         icon: '/icons/payment.svg',     label: 'Expenses' },
@@ -11,7 +12,7 @@ const links = [
   { href: '/purchase-orders',  icon: '/icons/Plus_square.svg', label: 'PO' },
   { href: '/transactions',     icon: '/icons/Book.svg',        label: 'Transactions' },
   { href: '/audit-logs',       icon: '/icons/Book.svg',        label: 'Audit' },
-  { href: '/dashboard',        icon: '/icons/menu.svg',        label: 'Dashboard' },
+  
 ]
 export default function ManagerSidebar() {
   const pathname = usePathname()
