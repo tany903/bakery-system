@@ -1,5 +1,4 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getCurrentUser, getUserProfile, signOut } from '@/lib/auth'
@@ -17,8 +16,23 @@ import type { Product, Category } from '@/lib/supabase'
 import FulfillRequestModal from '@/components/FulfillRequestModal'
 import ManagerSidebar from '@/components/ManagerSidebar'
 
-
 const PAGE_SIZE = 9
+
+// Convert a datetime-local string (treated as Asia/Manila) to UTC ISO string
+function manilaLocalToUTC(localStr: string): string {
+  if (!localStr) return localStr
+  const [datePart, timePart = '00:00'] = localStr.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute] = timePart.split(':').map(Number)
+  // PHT = UTC+8, so subtract 8 hours
+  const utc = new Date(Date.UTC(year, month - 1, day, hour - 8, minute))
+  return utc.toISOString()
+}
+
+// Format a UTC ISO string from Supabase to PHT for display
+function formatPHT(isoStr: string, opts: Intl.DateTimeFormatOptions): string {
+  return new Date(isoStr).toLocaleString('en-PH', { ...opts, timeZone: 'Asia/Manila' })
+}
 
 export default function RestockRequestsPage() {
   const router = useRouter()
@@ -202,7 +216,9 @@ export default function RestockRequestsPage() {
     }))
     setSubmitting(true); setError('')
     try {
-      await createRestockRequest(items, 'manual_order', userId, newOrderNotes || undefined, newDeliveryDate || undefined)
+      // Convert the Manila local datetime to UTC before saving
+      const deliveryDateUTC = newDeliveryDate ? manilaLocalToUTC(newDeliveryDate) : undefined
+      await createRestockRequest(items, 'manual_order', userId, newOrderNotes || undefined, deliveryDateUTC)
       setSuccess(`Restock request created with ${items.length} product${items.length !== 1 ? 's' : ''}`)
       setShowNewRequestModal(false)
       await loadRequests()
@@ -216,19 +232,37 @@ export default function RestockRequestsPage() {
   const totalPages = Math.ceil(filteredRequests.length / PAGE_SIZE)
   const paginatedRequests = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  // deliveryDate is a UTC ISO string from Supabase, or a datetime-local string from the input
   function getDeliveryDateInfo(deliveryDate: string | null | undefined) {
     if (!deliveryDate) return null
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const due = new Date(deliveryDate); due.setHours(0, 0, 0, 0)
-    const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    if (diffDays < 0)   return { label: `Overdue by ${Math.abs(diffDays)}d`, color: '#EF4444', bg: '#FEE2E2' }
-    if (diffDays === 0) return { label: 'Needed Today!',        color: '#DC2626', bg: '#FEE2E2' }
-    if (diffDays === 1) return { label: 'Needed Tomorrow',      color: '#D97706', bg: '#FEF3C7' }
-    if (diffDays <= 3)  return { label: `Needed in ${diffDays}d`, color: '#D97706', bg: '#FEF3C7' }
-    return {
-      label: `Needed by ${new Date(deliveryDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}`,
-      color: '#6B7280', bg: '#F3F4F6'
+
+    // Parse the date correctly: if it's a UTC ISO string (from DB), parse directly.
+    // If it's a datetime-local string (from input, no Z/offset), treat as Manila time.
+    let due: Date
+    if (deliveryDate.endsWith('Z') || deliveryDate.includes('+')) {
+      due = new Date(deliveryDate)
+    } else {
+      // datetime-local from input — treat as Manila local time
+      const [datePart, timePart = '00:00'] = deliveryDate.split('T')
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [hour, minute] = timePart.split(':').map(Number)
+      due = new Date(Date.UTC(year, month - 1, day, hour - 8, minute))
     }
+
+    const now = new Date()
+    const diffMs = due.getTime() - now.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    const diffHours = diffMs / (1000 * 60 * 60)
+
+    const timeStr = due.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
+    const dateStr = due.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
+
+    if (diffMs < 0)      return { label: `Overdue — ${dateStr} ${timeStr}`,            color: '#EF4444', bg: '#FEE2E2' }
+    if (diffHours <= 3)  return { label: `Needed Soon — by ${timeStr}`,                color: '#DC2626', bg: '#FEE2E2' }
+    if (diffHours <= 24) return { label: `Needed Today — by ${timeStr}`,               color: '#DC2626', bg: '#FEE2E2' }
+    if (diffDays <= 1)   return { label: `Needed Tomorrow — by ${timeStr}`,            color: '#D97706', bg: '#FEF3C7' }
+    if (diffDays <= 3)   return { label: `Needed in ${diffDays}d — by ${timeStr}`,     color: '#D97706', bg: '#FEF3C7' }
+    return               { label: `Needed by ${dateStr} ${timeStr}`,                   color: '#6B7280', bg: '#F3F4F6' }
   }
 
   const cashierNavLinks = [
@@ -319,8 +353,6 @@ export default function RestockRequestsPage() {
             </div>
 
             <div className="px-4 py-4 flex flex-col gap-3 flex-1">
-
-              {/* Needed By badge — shown prominently if set */}
               {deliveryInfo && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-sm" style={{ backgroundColor: deliveryInfo.bg }}>
                   <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: deliveryInfo.color }}>
@@ -386,7 +418,7 @@ export default function RestockRequestsPage() {
 
               <div className="flex flex-col gap-0.5">
                 <p className="text-xs text-gray-400">
-                  {new Date(request.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {formatPHT(request.created_at, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </p>
                 {request.requested_by_profile?.full_name && (
                   <p className="text-xs text-gray-500">By: <span className="font-semibold">{request.requested_by_profile.full_name}</span></p>
@@ -617,15 +649,17 @@ export default function RestockRequestsPage() {
                   Needed By <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={newDeliveryDate}
                   onChange={e => setNewDeliveryDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={new Date().toISOString().slice(0, 16)}
                   className={inputClass}
                 />
                 {newDeliveryDate && (() => {
                   const info = getDeliveryDateInfo(newDeliveryDate)
-                  return info ? <p className="text-xs mt-1 font-semibold" style={{ color: info.color }}>{info.label}</p> : null
+                  return info ? (
+                    <p className="text-xs mt-1 font-semibold" style={{ color: info.color }}>{info.label}</p>
+                  ) : null
                 })()}
               </div>
               <div className="flex-1">
@@ -650,7 +684,7 @@ export default function RestockRequestsPage() {
                 {newDeliveryDate && (
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
                     <span>Needed By</span>
-                    <span className="font-bold">{new Date(newDeliveryDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span className="font-bold">{getDeliveryDateInfo(newDeliveryDate)?.label ?? ''}</span>
                   </div>
                 )}
                 <div className="border-t border-gray-200 mt-2 pt-2 flex justify-between text-xs font-black text-gray-900">

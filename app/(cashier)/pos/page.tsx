@@ -18,6 +18,25 @@ import ProductGrid from '@/components/ProductGrid'
 import Receipt from '@/components/Receipt'
 import CashRegisterWidget from '@/components/CashRegisterWidget'
 
+// Convert a datetime-local string (treated as Asia/Manila) to UTC ISO string
+function manilaLocalToUTC(localStr: string): string {
+  if (!localStr) return localStr
+  const [datePart, timePart = '00:00'] = localStr.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute] = timePart.split(':').map(Number)
+  // PHT = UTC+8, so subtract 8 hours to get UTC
+  const utc = new Date(Date.UTC(year, month - 1, day, hour - 8, minute))
+  return utc.toISOString()
+}
+
+// Get current Manila time as a datetime-local string (for input min)
+function getManilaLocalNow(): string {
+  const now = new Date()
+  const manila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${manila.getFullYear()}-${pad(manila.getMonth() + 1)}-${pad(manila.getDate())}T${pad(manila.getHours())}:${pad(manila.getMinutes())}`
+}
+
 export default function POSPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -40,13 +59,14 @@ export default function POSPage() {
   const [discountTargetId, setDiscountTargetId] = useState<string | null>(null)
   const [discountInput, setDiscountInput] = useState('')
 
-  // Restock request modal
+  // Restock / advance order modal
   const [showRestockModal, setShowRestockModal] = useState(false)
   const [restockProducts, setRestockProducts] = useState<any[]>([])
   const [restockItems, setRestockItems] = useState<{ product_id: string; requested_quantity: string; notes: string }[]>([
     { product_id: '', requested_quantity: '', notes: '' }
   ])
   const [restockOrderNotes, setRestockOrderNotes] = useState('')
+  const [restockDeliveryDate, setRestockDeliveryDate] = useState('')
   const [restockSubmitting, setRestockSubmitting] = useState(false)
   const [restockError, setRestockError] = useState('')
   const [restockSuccess, setRestockSuccess] = useState('')
@@ -188,6 +208,7 @@ export default function POSPage() {
     setRestockProducts(data.filter((p: any) => !p.is_archived))
     setRestockItems([{ product_id: '', requested_quantity: '', notes: '' }])
     setRestockOrderNotes('')
+    setRestockDeliveryDate('')
     setRestockError('')
     setRestockSuccess('')
     setShowRestockModal(true)
@@ -213,6 +234,35 @@ export default function POSPage() {
     return restockProducts.filter((p: any) => !selectedIds.includes(p.id))
   }
 
+  function getDeliveryDateInfo(deliveryDate: string | null | undefined) {
+    if (!deliveryDate) return null
+
+    // Parse correctly: UTC ISO from DB, or datetime-local from input (Manila time)
+    let due: Date
+    if (deliveryDate.endsWith('Z') || deliveryDate.includes('+')) {
+      due = new Date(deliveryDate)
+    } else {
+      const [datePart, timePart = '00:00'] = deliveryDate.split('T')
+      const [year, month, day] = datePart.split('-').map(Number)
+      const [hour, minute] = timePart.split(':').map(Number)
+      due = new Date(Date.UTC(year, month - 1, day, hour - 8, minute))
+    }
+
+    const now = new Date()
+    const diffMs = due.getTime() - now.getTime()
+    const diffHours = diffMs / (1000 * 60 * 60)
+    const diffDays = diffMs / (1000 * 60 * 60 * 24)
+    const timeStr = due.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
+    const dateStr = due.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
+
+    if (diffMs < 0)       return { label: `Overdue — ${dateStr} ${timeStr}`,                   color: '#EF4444' }
+    if (diffHours <= 3)   return { label: `Needed Soon — by ${timeStr}`,                       color: '#DC2626' }
+    if (diffHours <= 24)  return { label: `Needed Today — by ${timeStr}`,                      color: '#DC2626' }
+    if (diffDays <= 2)    return { label: `Needed Tomorrow — by ${timeStr}`,                   color: '#D97706' }
+    if (diffDays <= 4)    return { label: `Needed in ${Math.floor(diffDays)}d — by ${timeStr}`,color: '#D97706' }
+    return                { label: `Needed by ${dateStr} ${timeStr}`,                          color: '#6B7280' }
+  }
+
   async function handleRestockSubmit(e: React.FormEvent) {
     e.preventDefault()
     const validItems = restockItems.filter(i => i.product_id && parseInt(i.requested_quantity) > 0)
@@ -224,7 +274,15 @@ export default function POSPage() {
     }))
     setRestockSubmitting(true); setRestockError('')
     try {
-      await createRestockRequest(items, 'manual_order', userId, restockOrderNotes || undefined)
+      // Convert Manila local datetime to UTC before saving
+      const deliveryDateUTC = restockDeliveryDate ? manilaLocalToUTC(restockDeliveryDate) : undefined
+      await createRestockRequest(
+        items,
+        'manual_order',
+        userId,
+        restockOrderNotes || undefined,
+        deliveryDateUTC
+      )
       setRestockSuccess(`Restock request created with ${items.length} product${items.length !== 1 ? 's' : ''}`)
       setTimeout(() => { setShowRestockModal(false); setRestockSuccess('') }, 1500)
     } catch (err: any) {
@@ -288,8 +346,7 @@ export default function POSPage() {
           </div>
         )}
         {userId && (
-          <button
-            onClick={() => setShowCash(true)}
+          <button onClick={() => setShowCash(true)}
             className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-sm font-bold text-sm shrink-0"
             style={{ backgroundColor: '#F5A623', color: '#7B1111' }}>
             <span className="text-base font-black">₱</span>
@@ -386,7 +443,6 @@ export default function POSPage() {
                           className="text-xs text-red-400 hover:text-red-600 font-semibold shrink-0">✕</button>
                       </div>
 
-                      {/* Qty controls */}
                       <div className="flex items-center justify-between mt-2">
                         <div className="flex items-center gap-2">
                           <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)}
@@ -400,10 +456,8 @@ export default function POSPage() {
                         <span className="font-black text-sm text-gray-900">₱{getItemSubtotal(item).toFixed(2)}</span>
                       </div>
 
-                      {/* Discount toggles */}
                       <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => toggleOldStock(item.product.id)}
+                        <button onClick={() => toggleOldStock(item.product.id)}
                           className="text-xs font-bold px-2 py-1 rounded-sm border transition-colors"
                           style={item.isOldStock
                             ? { backgroundColor: '#F5A623', borderColor: '#F5A623', color: '#7B1111' }
@@ -444,15 +498,12 @@ export default function POSPage() {
                   </span>
                 </div>
               )}
-
               <div className="flex items-center justify-between mb-4">
                 <span className="font-black text-gray-900 text-lg">Total</span>
                 <span className="font-black text-2xl" style={{ color: '#7B1111' }}>
                   ₱{cartTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-
-              {/* Payment method toggle */}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button onClick={() => setPaymentMethod('cash')}
                   className="py-2 rounded-sm text-xs font-bold border-2 transition-colors"
@@ -467,13 +518,11 @@ export default function POSPage() {
                     : { borderColor: '#e5e7eb', color: '#374151' }
                   }>💳 Online</button>
               </div>
-
-              {/* Online payment notice */}
               {paymentMethod === 'online' && (
                 <div className="mb-3 px-3 py-2 rounded-sm border border-blue-200 bg-blue-50">
                   <p className="text-xs font-black text-blue-700 mb-0.5">💳 Online Payment</p>
                   <p className="text-xs text-blue-600 leading-relaxed">
-                    This sale will <span className="font-bold">not</span> be added to the cash register — payment goes directly to the owner's account.
+                    This sale will <span className="font-bold">not</span> be added to the cash register.
                   </p>
                   <div className="mt-1.5 flex flex-col gap-0.5">
                     <p className="text-xs text-blue-500">✓ Recorded in sales & analytics</p>
@@ -482,7 +531,6 @@ export default function POSPage() {
                   </div>
                 </div>
               )}
-
               <button onClick={processPayment} disabled={processing}
                 className="w-full py-3 rounded-sm font-black text-white text-base disabled:opacity-50 mb-2 transition-colors"
                 style={{ backgroundColor: paymentMethod === 'online' ? '#1a2340' : '#10B981' }}>
@@ -514,12 +562,9 @@ export default function POSPage() {
             </div>
             <div className="px-6 py-5">
               <p className="text-xs text-gray-400 mb-3">Max allowed: {maxDiscountPct}%</p>
-              <select
-                value={discountInput}
-                onChange={e => setDiscountInput(e.target.value)}
+              <select value={discountInput} onChange={e => setDiscountInput(e.target.value)}
                 className="w-full text-sm px-3 py-2 rounded-sm border border-gray-200 bg-gray-50 text-gray-900 focus:outline-none focus:border-gray-400 mb-4"
-                autoFocus
-              >
+                autoFocus>
                 <option value="">Select discount...</option>
                 {[1, 2, 3, 20, 30].filter(pct => pct <= maxDiscountPct).map(pct => (
                   <option key={pct} value={pct}>{pct}% off</option>
@@ -553,14 +598,15 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* Restock Request Modal */}
+      {/* Advance Order / Restock Modal */}
       {showRestockModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-sm w-full max-w-lg max-h-[90vh] flex flex-col" style={{ boxShadow: '4px 4px 20px rgba(0,0,0,0.4)' }}>
             <div className="px-6 py-4 shrink-0" style={{ backgroundColor: '#220901' }}>
-              <h2 className="text-white font-black text-lg">📦 New Restock Request</h2>
+              <h2 className="text-white font-black text-lg">📦 Advance Order</h2>
               <p className="text-white text-xs opacity-50 mt-0.5">Reserve products for tomorrow or future orders</p>
             </div>
+
             <form onSubmit={handleRestockSubmit} className="flex flex-col flex-1 overflow-hidden">
               <div className="px-6 py-4 space-y-3 overflow-y-auto flex-1">
                 {restockError && <div className="px-3 py-2 rounded-sm text-xs font-semibold text-white bg-red-500">{restockError}</div>}
@@ -628,10 +674,32 @@ export default function POSPage() {
                   </button>
                 )}
 
-                <div>
-                  <textarea value={restockOrderNotes} onChange={e => setRestockOrderNotes(e.target.value)} rows={2}
-                    placeholder="Order notes (optional) — e.g., Customer reservation for tomorrow"
-                    className="w-full text-sm px-3 py-2 rounded-sm border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400" />
+                {/* Needed By + Order Notes */}
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">
+                      Needed By <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={restockDeliveryDate}
+                      onChange={e => setRestockDeliveryDate(e.target.value)}
+                      min={getManilaLocalNow()}
+                      className="w-full text-sm px-3 py-2 rounded-sm border border-gray-200 bg-gray-50 text-gray-900 focus:outline-none focus:border-gray-400"
+                    />
+                    {restockDeliveryDate && (() => {
+                      const info = getDeliveryDateInfo(restockDeliveryDate)
+                      return info ? <p className="text-xs mt-1 font-semibold" style={{ color: info.color }}>{info.label}</p> : null
+                    })()}
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">
+                      Order Notes <span className="text-gray-400 font-normal">(optional)</span>
+                    </label>
+                    <textarea value={restockOrderNotes} onChange={e => setRestockOrderNotes(e.target.value)} rows={2}
+                      placeholder="e.g., Customer reservation for tomorrow"
+                      className="w-full text-sm px-3 py-2 rounded-sm border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400" />
+                  </div>
                 </div>
               </div>
 

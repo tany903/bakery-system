@@ -94,8 +94,8 @@ export default function Receipt({ sale, onClose }: ReceiptProps) {
           {/* Header */}
           <div className="header text-center mb-6 pb-4 border-b-2 border-dashed border-gray-800">
             <div className="text-3xl mb-2">🥖</div>
-            <h1 className="text-2xl font-bold">BAKERY SHOP</h1>
-            <p className="text-sm text-gray-600">Fresh Baked Daily</p>
+            <h1 className="text-2xl font-bold">FREDS PIES</h1>
+            <p className="text-sm text-gray-600">Is Fred Is Good</p>
           </div>
 
           {/* Sale Info */}
@@ -106,7 +106,7 @@ export default function Receipt({ sale, onClose }: ReceiptProps) {
             </div>
             <div className="flex justify-between">
               <span>Date:</span>
-              <span>{new Date(sale.sale_date).toLocaleString()}</span>
+              <span>{new Date(sale.sale_date).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}</span>
             </div>
             <div className="flex justify-between">
               <span>Cashier:</span>

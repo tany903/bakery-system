@@ -261,6 +261,7 @@ export default function ManagerDashboard() {
                           {new Date(sale.sale_date).toLocaleDateString('en-PH', {
                             month: 'short', day: 'numeric',
                             hour: '2-digit', minute: '2-digit',
+                            timeZone: 'Asia/Manila',
                           })}
                         </td>
                         <td className="px-5 py-3 text-sm font-medium text-gray-800">

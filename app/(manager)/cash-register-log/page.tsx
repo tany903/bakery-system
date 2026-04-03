@@ -247,7 +247,7 @@ export default function CashRegisterLogPage() {
                     {paginated.map((entry) => (
                       <tr key={entry.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors">
                         <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">
-                          {new Date(entry.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {new Date(entry.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })}
                         </td>
                         <td className="px-5 py-3">{getTypeBadge(entry.type)}</td>
                         <td className="px-5 py-3">
