@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { getCurrentUser, getUserProfile, signOut } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
@@ -568,8 +568,8 @@ export default function TransactionsPage() {
                           {paginatedSales.map(sale => {
                             const expanded = expandedSales.has(sale.id)
                             return (
-                              <>
-                                <tr key={sale.id}
+                              <React.Fragment key={sale.id}>
+                                <tr
                                   className={`border-b border-gray-100 transition-colors ${sale.is_voided ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
                                   <td className="px-3 py-3 text-center">
                                     <button onClick={() => toggleExpand(sale.id)}
@@ -654,7 +654,7 @@ export default function TransactionsPage() {
                                     </td>
                                   </tr>
                                 )}
-                              </>
+                              </React.Fragment>
                             )
                           })}
                         </tbody>

@@ -53,17 +53,9 @@ export async function POST(req: NextRequest) {
 
     if (voidErr) throw voidErr
 
-    // 4. If payment was cash, log a cash_out to cash_register
-    if (sale.payment_method === 'cash') {
-      await supabaseAdmin
-        .from('cash_register')
-        .insert({
-          type: 'cash_out',
-          amount: Number(sale.total_amount),
-          notes: `Void of sale ${sale.sale_number}: ${voidReason.trim()}`,
-          performed_by: managerId,
-        })
-    }
+    // 4. Cash register is NOT touched on void — getCashSummary() reads
+    // cash sales from the sales table filtered by is_voided=false, so
+    // marking the sale voided above already removes it from the balance.
 
     // 5. Restore shop stock and log each item
     for (const item of sale.sale_items ?? []) {

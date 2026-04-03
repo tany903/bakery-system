@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
         amount: entry.amount,
         notes: `Reversal of ${entry.type.replace('_', ' ')} (₱${Number(entry.amount).toFixed(2)}): ${voidReason.trim()}`,
         performed_by: managerId,
+        reference_id: entryId,
       })
 
     return NextResponse.json({ success: true })

@@ -251,16 +251,16 @@ export default function POSPage() {
     const now = new Date()
     const diffMs = due.getTime() - now.getTime()
     const diffHours = diffMs / (1000 * 60 * 60)
-    const diffDays = diffMs / (1000 * 60 * 60 * 24)
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
     const timeStr = due.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Manila' })
     const dateStr = due.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
 
-    if (diffMs < 0)       return { label: `Overdue — ${dateStr} ${timeStr}`,                   color: '#EF4444' }
-    if (diffHours <= 3)   return { label: `Needed Soon — by ${timeStr}`,                       color: '#DC2626' }
-    if (diffHours <= 24)  return { label: `Needed Today — by ${timeStr}`,                      color: '#DC2626' }
-    if (diffDays <= 2)    return { label: `Needed Tomorrow — by ${timeStr}`,                   color: '#D97706' }
-    if (diffDays <= 4)    return { label: `Needed in ${Math.floor(diffDays)}d — by ${timeStr}`,color: '#D97706' }
-    return                { label: `Needed by ${dateStr} ${timeStr}`,                          color: '#6B7280' }
+    if (diffMs < 0)       return { label: `Overdue — ${dateStr} ${timeStr}`,                    color: '#EF4444', bg: '#FEE2E2' }
+    if (diffHours <= 3)   return { label: `Needed Soon — by ${timeStr}`,                        color: '#DC2626', bg: '#FEE2E2' }
+    if (diffHours <= 24)  return { label: `Needed Today — by ${timeStr}`,                       color: '#DC2626', bg: '#FEE2E2' }
+    if (diffDays <= 1)    return { label: `Needed Tomorrow — by ${timeStr}`,                    color: '#D97706', bg: '#FEF3C7' }
+    if (diffDays <= 3)    return { label: `Needed in ${diffDays}d — by ${timeStr}`,             color: '#D97706', bg: '#FEF3C7' }
+    return                { label: `Needed by ${dateStr} ${timeStr}`,                           color: '#6B7280', bg: '#F3F4F6' }
   }
 
   async function handleRestockSubmit(e: React.FormEvent) {
@@ -689,7 +689,14 @@ export default function POSPage() {
                     />
                     {restockDeliveryDate && (() => {
                       const info = getDeliveryDateInfo(restockDeliveryDate)
-                      return info ? <p className="text-xs mt-1 font-semibold" style={{ color: info.color }}>{info.label}</p> : null
+                      return info ? (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-sm mt-1" style={{ backgroundColor: info.bg }}>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: info.color }}>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-xs font-black" style={{ color: info.color }}>{info.label}</span>
+                        </div>
+                      ) : null
                     })()}
                   </div>
                   <div className="flex-1">

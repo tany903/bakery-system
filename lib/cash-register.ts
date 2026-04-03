@@ -6,6 +6,7 @@ export interface CashRegisterEntry {
   amount: number
   notes: string | null
   performed_by: string
+  reference_id: string | null
   created_at: string
 }
 
@@ -43,14 +44,14 @@ export async function getCashSummary(): Promise<CashSummary> {
       .from('sales')
       .select('total_amount')
       .eq('payment_method', 'cash')
-      .eq('is_voided', false)           // ← exclude voided sales
+      .eq('is_voided', false)
       .gte('created_at', yesterdayStart)
       .lt('created_at', todayStart),
     supabase
       .from('sales')
       .select('total_amount')
       .eq('payment_method', 'cash')
-      .eq('is_voided', false)           // ← exclude voided sales
+      .eq('is_voided', false)
       .gte('created_at', todayStart),
   ])
 
@@ -59,17 +60,15 @@ export async function getCashSummary(): Promise<CashSummary> {
   if (yesterdaySalesError) throw yesterdaySalesError
   if (todaySalesError) throw todaySalesError
 
-  // Yesterday's cash on hand → becomes today's float
   const yesterdayCashSales = yesterdaySales?.reduce((sum, s) => sum + Number(s.total_amount), 0) || 0
-  const yesterdayFloat = yesterdayEntries?.filter(e => e.type === 'float').reduce((sum, e) => sum + Number(e.amount), 0) || 0
-  const yesterdayCashIn = yesterdayEntries?.filter(e => e.type === 'cash_in').reduce((sum, e) => sum + Number(e.amount), 0) || 0
-  const yesterdayCashOut = yesterdayEntries?.filter(e => e.type === 'cash_out').reduce((sum, e) => sum + Number(e.amount), 0) || 0
+  const yesterdayFloat = yesterdayEntries?.filter(e => e.type === 'float' && !e.is_voided).reduce((sum, e) => sum + Number(e.amount), 0) || 0
+  const yesterdayCashIn = yesterdayEntries?.filter(e => e.type === 'cash_in' && !e.is_voided).reduce((sum, e) => sum + Number(e.amount), 0) || 0
+  const yesterdayCashOut = yesterdayEntries?.filter(e => e.type === 'cash_out' && !e.is_voided).reduce((sum, e) => sum + Number(e.amount), 0) || 0
   const cashFloat = Math.max(0, yesterdayFloat + yesterdayCashSales + yesterdayCashIn - yesterdayCashOut)
 
-  // Today's figures
   const todayCashSales = todaySales?.reduce((sum, s) => sum + Number(s.total_amount), 0) || 0
-  const totalCashIn = todayEntries?.filter(e => e.type === 'cash_in').reduce((sum, e) => sum + Number(e.amount), 0) || 0
-  const totalCashOut = todayEntries?.filter(e => e.type === 'cash_out').reduce((sum, e) => sum + Number(e.amount), 0) || 0
+  const totalCashIn = todayEntries?.filter(e => e.type === 'cash_in' && !e.is_voided).reduce((sum, e) => sum + Number(e.amount), 0) || 0
+  const totalCashOut = todayEntries?.filter(e => e.type === 'cash_out' && !e.is_voided).reduce((sum, e) => sum + Number(e.amount), 0) || 0
   const cashOnHand = Math.max(0, cashFloat + todayCashSales + totalCashIn - totalCashOut)
 
   return {
@@ -82,7 +81,12 @@ export async function getCashSummary(): Promise<CashSummary> {
   }
 }
 
-export async function addCashIn(amount: number, performedBy: string, notes?: string): Promise<void> {
+export async function addCashIn(
+  amount: number,
+  performedBy: string,
+  notes?: string,
+  referenceId?: string
+): Promise<void> {
   const { error } = await supabase
     .from('cash_register')
     .insert({
@@ -90,11 +94,17 @@ export async function addCashIn(amount: number, performedBy: string, notes?: str
       amount,
       notes: notes || null,
       performed_by: performedBy,
+      reference_id: referenceId || null,
     })
   if (error) throw error
 }
 
-export async function addCashOut(amount: number, performedBy: string, notes?: string): Promise<void> {
+export async function addCashOut(
+  amount: number,
+  performedBy: string,
+  notes?: string,
+  referenceId?: string
+): Promise<void> {
   const { error } = await supabase
     .from('cash_register')
     .insert({
@@ -102,6 +112,7 @@ export async function addCashOut(amount: number, performedBy: string, notes?: st
       amount,
       notes: notes || null,
       performed_by: performedBy,
+      reference_id: referenceId || null,
     })
   if (error) throw error
 }

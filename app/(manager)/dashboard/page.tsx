@@ -59,6 +59,7 @@ export default function ManagerDashboard() {
       .from('sales')
       .select('total_amount')
       .gte('sale_date', today.toISOString())
+      .eq('is_voided', false)
     setTodaySales((sales || []).reduce((sum, s) => sum + Number(s.total_amount), 0))
 
     const { data: lowStock } = await supabase
@@ -78,6 +79,7 @@ export default function ManagerDashboard() {
     const { data: recentSalesData } = await supabase
       .from('sales')
       .select(`id, sale_date, total_amount, payment_method, cashier:profiles!sales_cashier_id_fkey (full_name)`)
+      .eq('is_voided', false)
       .order('sale_date', { ascending: false })
       .limit(5)
     setRecentSales((recentSalesData as any) || [])
